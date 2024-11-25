@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: rgb(31 41 55);
+}
+
+.seat-1 {
+  top: 85%;
+  left: 30%;
+}
+
+.seat-2 {
+  top: 80%;
+  left: 5%;
+}
+
+.seat-3 {
+  left: -6%;
+}
+
+.seat-4 {
+  bottom: 80%;
+  left: 5%;
+}
+
+.seat-5 {
+  bottom: 85%;
+  left: 30%;
+}
+
+.seat-6 {
+  bottom: 85%;
+  right: 30%;
+}
+
+.seat-7 {
+  bottom: 80%;
+  right: 5%;
+}
+
+.seat-8 {
+  right: -6%;
+}
+
+.seat-9 {
+  top: 80%;
+  right: 5%;
+}
+
+.seat-10 {
+  top: 85%;
+  right: 30%;
+}
+
+.turn-button {
+  top: 110%;
+}
+
+.round-button {
+  top: 118%;
+  right: 0%;
+}
+
+.phase-button {
+  top: 110%;
+  left: 0%;
+}
+
+.action-button {
+  bottom: -28%;
+  left: 0;
+}
+
+.raising-input {
+  bottom: 120%;
+}
+
+@media (max-width: 768px) {
+  .action-button {
+    bottom: -50%;
+  }
+
+  .round-button {
+    top: 140%;
+    right: 0%;
+  }
+}
