@@ -5,6 +5,8 @@ const initialState = {
   playerChips: {},
   playerBets: {},
   foldedPlayers: [],
+  playerNames: {},
+  playerIdx: 0,
 };
 
 const playerSlice = createSlice({
@@ -16,6 +18,9 @@ const playerSlice = createSlice({
     },
     setPlayerChips: (state, action) => {
       state.playerChips = action.payload;
+    },
+    setPlayerNames: (state, action) => {
+      state.playerNames = action.payload;
     },
     setPlayerBet: (state, action) => {
       state.playerBets = action.payload;
@@ -32,6 +37,9 @@ const playerSlice = createSlice({
     resetFoldedPlayers: (state) => {
       state.foldedPlayers = [];
     },
+    setPlayerIdx: (state, action) => {
+      state.playerIdx = action.payload;
+    },
   },
 });
 
@@ -42,5 +50,7 @@ export const {
   addFoldedPlayer,
   resetPlayerBets,
   resetFoldedPlayers,
+  setPlayerNames,
+  setPlayerIdx,
 } = playerSlice.actions;
 export default playerSlice.reducer;

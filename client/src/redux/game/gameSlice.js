@@ -7,6 +7,10 @@ const initialState = {
   currentPhase: "pre-flop",
   pot: 0,
   currentBet: 0,
+  smallBlind: 10,
+  bigBlind: 20,
+  host: null,
+  holeCards: {},
 };
 
 const gameSlice = createSlice({
@@ -41,7 +45,7 @@ const gameSlice = createSlice({
       state.currentPhase = "pre-flop";
     },
     setPot: (state, action) => {
-      state.pot   = action.payload;
+      state.pot = action.payload;
     },
     resetPot: (state) => {
       state.pot = 0;
@@ -51,6 +55,18 @@ const gameSlice = createSlice({
     },
     resetCurrentBet: (state) => {
       state.currentBet = 0;
+    },
+    setSmallBlind: (state, action) => {
+      state.smallBlind = action.payload;
+    },
+    setBigBlind: (state, action) => {
+      state.bigBlind = action.payload;
+    },
+    setHost(state, action) {
+      state.host = action.payload;
+    },
+    setHoleCards(state, action) {
+      state.holeCards = action.payload;
     },
   },
 });
@@ -68,5 +84,9 @@ export const {
   resetPot,
   setCurrentBet,
   resetCurrentBet,
+  setSmallBlind,
+  setBigBlind,
+  setHost,
+  setHoleCards,
 } = gameSlice.actions;
 export default gameSlice.reducer;

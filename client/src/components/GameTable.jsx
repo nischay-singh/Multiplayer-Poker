@@ -7,6 +7,9 @@ import {
   setCurrentPhase,
   setPot,
   setCurrentBet,
+  setSmallBlind,
+  setBigBlind,
+  setHoleCards,
 } from "../redux/game/gameSlice";
 import {
   setPlayers,
@@ -14,6 +17,8 @@ import {
   setPlayerBet,
   addFoldedPlayer,
   resetFoldedPlayers,
+  setPlayerNames,
+  setPlayerIdx,
 } from "../redux/player/playerSlice";
 import { useParams } from "react-router-dom";
 
@@ -22,6 +27,8 @@ export default function GameTable({ socket }) {
   const playerChips = useSelector((state) => state.players.playerChips);
   const playerBets = useSelector((state) => state.players.playerBets);
   const foldedPlayers = useSelector((state) => state.players.foldedPlayers);
+  const playerNames = useSelector((state) => state.players.playerNames);
+  const curIdx = useSelector((state) => state.players.playerIdx);
 
   const dealer = useSelector((state) => state.game.dealer);
   const currentTurn = useSelector((state) => state.game.currentTurn);
@@ -29,24 +36,38 @@ export default function GameTable({ socket }) {
   const pot = useSelector((state) => state.game.pot);
   const currentPhase = useSelector((state) => state.game.currentPhase);
   const currentBet = useSelector((state) => state.game.currentBet);
+  const host = useSelector((state) => state.game.host);
+  const bigBlind = useSelector((state) => state.game.bigBlind);
+  const holeCards = useSelector((state) => state.game.holeCards);
 
   const { lobbyID } = useParams();
   const dispatch = useDispatch();
 
-  const [holeCards, setHoleCards] = useState({});
   const [isRaising, setIsRaising] = useState(false);
   const [raiseAmount, setRaiseAmount] = useState("");
-  const [minRaise, setMinRaise] = useState(20); // min raise is initially the big blind
+  const [minRaise, setMinRaise] = useState(bigBlind); // min raise is initially the big blind
   const [hasGameEnded, setHasGameEnded] = useState(false);
   const [gameWinner, setGameWinner] = useState(null);
-  // const [winningHands, setWinningHands] = useState({});
+  const [gameWinnerName, setGameWinnerName] = useState(null);
+
+  console.log(gameWinner, gameWinnerName);
 
   useEffect(() => {
     socket.on("updatePlayerList", (info) => {
+      dispatch(setPlayerNames(info.playerNames));
+      dispatch(setPlayerChips(info.playerChips));
       dispatch(setPlayers(info.players));
       dispatch(setDealer(info.dealer));
       dispatch(setTurn(info.currentTurn));
-      dispatch(setPlayerChips(info.playerChips));
+      dispatch(setBigBlind(info.bigBlind));
+      dispatch(setSmallBlind(info.smallBlind));
+
+      for (let i = 0; i < info.players.length; i++) {
+        if (info.players[i] === socket.id) {
+          dispatch(setPlayerIdx(i));
+          break;
+        }
+      }
     });
 
     socket.on("turnChanged", (info) => {
@@ -59,12 +80,13 @@ export default function GameTable({ socket }) {
     });
 
     socket.on("gameStarted", (info) => {
-      setHoleCards(info.holeCards);
+      dispatch(setHoleCards(info.holeCards));
       dispatch(setCommunityCards([]));
       dispatch(setCurrentPhase(info.phase));
       dispatch(setTurn(info.currentTurn));
       dispatch(setDealer(info.dealer));
       dispatch(resetFoldedPlayers());
+      dispatch(setCurrentBet(info.currentBet));
       setHasGameEnded(false); // Reset game end state
       setGameWinner(null);
     });
@@ -72,7 +94,8 @@ export default function GameTable({ socket }) {
     socket.on("phaseUpdate", (info) => {
       dispatch(setCommunityCards(info.communityCards));
       dispatch(setCurrentPhase(info.phase));
-      setMinRaise(20); // set to big blind
+      dispatch(setTurn(info.currentTurn));
+      setMinRaise(bigBlind); // set to big blind
     });
 
     socket.on("updateBets", (info) => {
@@ -82,9 +105,9 @@ export default function GameTable({ socket }) {
       dispatch(setCurrentBet(info.currentBet));
       dispatch(setPot(info.pot));
 
-      let curMinRaise = info.currentBet - (info.lastRaise || 20);
-      if (curMinRaise < 20) {
-        curMinRaise = 20;
+      let curMinRaise = info.currentBet - (info.lastRaise || bigBlind);
+      if (curMinRaise < bigBlind) {
+        curMinRaise = bigBlind;
       }
       setMinRaise(curMinRaise);
     });
@@ -100,7 +123,11 @@ export default function GameTable({ socket }) {
 
     socket.on("gameEnded", (info) => {
       setGameWinner(info.winners);
+
       setHasGameEnded(true);
+
+      dispatch(setPlayerChips(info.playerChips));
+      dispatch(setHoleCards(info.holeCards));
     });
 
     return () => {
@@ -117,7 +144,7 @@ export default function GameTable({ socket }) {
   }, [dispatch]);
 
   const handleCheck = () => {
-    if (socket.id === players[currentTurn] && currentBet === 0) {
+    if (socket.id === players[currentTurn]) {
       socket.emit("check", lobbyID);
     }
   };
@@ -131,8 +158,6 @@ export default function GameTable({ socket }) {
     }
 
     const totalRaiseAmount = parseInt(raiseAmount);
-
-    console.log(totalRaiseAmount, minRaise);
 
     if (totalRaiseAmount <= currentBet) {
       alert("Raise amount must be greater than the current bet.");
@@ -213,7 +238,10 @@ export default function GameTable({ socket }) {
                 >
                   <img
                     src={`/cards/${
-                      playerID === socket.id ? card : "RED_BACK"
+                      playerID === socket.id ||
+                      (hasGameEnded && !foldedPlayers.includes(playerID))
+                        ? card
+                        : "RED_BACK"
                     }.svg`}
                     alt="Card"
                     className="w-full h-full object-contain"
@@ -223,7 +251,7 @@ export default function GameTable({ socket }) {
             </div>
 
             <p>
-              Player {index + 1}
+              {playerNames[playerID]}
               {index === dealer ? " (D)" : ""}
               {index === (dealer + 1) % players.length ? " (SB)" : ""}
               {index === (dealer + 2) % players.length ? " (BB)" : ""}
@@ -239,8 +267,8 @@ export default function GameTable({ socket }) {
           <div className="absolute top-4 left-4 bg-gray-900 text-white p-4 rounded shadow-md">
             <h3 className="font-bold">Game Ended!</h3>
             <p>
-              Winner(s): {gameWinner.join(", ")}
-              {/* <br /> Hand Details: {JSON.stringify(gameWinner.handDetails)} */}
+              Winner(s):{" "}
+              {gameWinner.map((id) => playerNames[id] || "Unknown").join(", ")}
             </p>
           </div>
         )}
@@ -250,9 +278,23 @@ export default function GameTable({ socket }) {
             <div className="flex gap-2">
               <button
                 onClick={handleCheck}
-                disabled={socket.id !== players[currentTurn] || currentBet > 0}
+                disabled={
+                  !(
+                    socket.id === players[currentTurn] &&
+                    (currentBet === 0 ||
+                      (curIdx === (dealer + 2) % players.length &&
+                        currentBet === playerBets[socket.id] &&
+                        currentPhase === "pre-flop"))
+                  )
+                }
                 className={`${
-                  socket.id !== players[currentTurn] || currentBet > 0
+                  !(
+                    socket.id === players[currentTurn] &&
+                    (currentBet === 0 ||
+                      (curIdx === (dealer + 2) % players.length &&
+                        currentBet === playerBets[socket.id] &&
+                        currentPhase === "pre-flop"))
+                  )
                     ? "bg-gray-400 cursor-not-allowed"
                     : "bg-blue-500 hover:bg-blue-700"
                 } text-white font-bold py-2 px-4 rounded`}
@@ -267,13 +309,20 @@ export default function GameTable({ socket }) {
                   currentBet === 0 ||
                   playerChips[socket.id] <
                     currentBet - (playerBets[socket.id] || 0) ||
-                  hasGameEnded
+                  hasGameEnded ||
+                  (currentPhase === "pre-flop" &&
+                    curIdx === (dealer + 2) % players.length &&
+                    currentBet === playerBets[socket.id])
                 }
                 className={`${
                   socket.id !== players[currentTurn] ||
                   currentBet === 0 ||
                   playerChips[socket.id] <
-                    currentBet - (playerBets[socket.id] || 0)
+                    currentBet - (playerBets[socket.id] || 0) ||
+                  hasGameEnded ||
+                  (currentPhase === "pre-flop" &&
+                    curIdx === (dealer + 2) % players.length &&
+                    currentBet === playerBets[socket.id])
                     ? "bg-gray-400 cursor-not-allowed"
                     : "bg-yellow-500 hover:bg-yellow-700"
                 } text-white font-bold py-2 px-4 rounded`}
@@ -333,7 +382,7 @@ export default function GameTable({ socket }) {
           )}
         </div>
 
-        {players.length > 1 && (
+        {players.length > 1 && host == socket.id && (
           <button
             onClick={handleNewRound}
             className="absolute bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded round-button md:text-md lg:text-lg"

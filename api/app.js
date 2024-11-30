@@ -33,7 +33,9 @@ const rooms = {};
 
 function dealCards(roomCode) {
   const room = rooms[roomCode];
-  if (!room) return;
+  if (!room) {
+    return;
+  }
 
   const deck = shuffleDeck(createDeck());
   room.deck = deck;
@@ -70,10 +72,19 @@ function shouldProgressPhase(room) {
     (player) => !room.foldedPlayers.includes(player)
   );
 
-  return activePlayers.every((player) => {
+  let ret = activePlayers.every((player) => {
     const playerBet = room.playerBets[player] || 0;
     return playerBet === (room.currentBet || 0);
   });
+
+  if (
+    room.phase === "pre-flop" &&
+    room.currentTurn === (room.dealer + 2) % room.players.length
+  ) {
+    ret = false;
+  }
+
+  return ret;
 }
 
 function evaluateHands(room) {
@@ -114,10 +125,20 @@ function evaluateHands(room) {
   return { winners, handDetails };
 }
 
+function getNextActivePlayer(room) {
+  let nextTurn = (room.currentTurn + 1) % room.players.length;
+
+  while (room.foldedPlayers.includes(room.players[nextTurn])) {
+    nextTurn = (nextTurn + 1) % room.players.length;
+  }
+
+  return nextTurn;
+}
+
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
 
-  socket.on("joinRoom", (roomCode) => {
+  socket.on("joinRoom", (roomCode, playerName, startingChips) => {
     socket.join(roomCode);
     if (!rooms[roomCode]) {
       rooms[roomCode] = {
@@ -132,26 +153,54 @@ io.on("connection", (socket) => {
         currentBet: 0,
         playerBets: {},
         playerChips: {},
+        playerNames: {},
         foldedPlayers: [],
         bigBlind: 20,
+        smallBlind: 10,
         lastRaise: 0,
+        host: socket.id,
       };
     }
     const room = rooms[roomCode];
     room.players.push(socket.id);
-    room.playerChips[socket.id] = 1000;
+    room.playerChips[socket.id] = startingChips;
+    room.playerNames[socket.id] = playerName;
 
     io.to(roomCode).emit("updatePlayerList", {
       players: room.players,
       dealer: room.dealer,
       currentTurn: room.currentTurn,
       playerChips: room.playerChips,
+      playerNames: room.playerNames,
+      host: room.host,
+      smallBlind: room.smallBlind,
+      bigBlind: room.bigBlind,
     });
+  });
+
+  socket.on("setBlinds", (roomCode, smallBlind, bigBlind) => {
+    const room = rooms[roomCode];
+    if (room && room.host === socket.id) {
+      room.smallBlind = smallBlind;
+      room.bigBlind = bigBlind;
+
+      io.to(roomCode).emit("blindsUpdated", {
+        smallBlind: room.smallBlind,
+        bigBlind: room.bigBlind,
+      });
+    } else {
+      socket.emit("error", { message: "Only the host can set the blinds." });
+    }
   });
 
   socket.on("startNewRound", (roomCode) => {
     const room = rooms[roomCode];
     if (!room) {
+      return;
+    }
+
+    if (room.host !== socket.id) {
+      socket.emit("error", { message: "Only the host can start the round." });
       return;
     }
 
@@ -161,16 +210,13 @@ io.on("connection", (socket) => {
     const sbIndex = (room.dealer + 1) % totalPlayers;
     const bbIndex = (room.dealer + 2) % totalPlayers;
 
-    const sbAmount = 10; // Default Small Blind
-    const bbAmount = 20; // Default Big Blind
+    room.playerBets[room.players[sbIndex]] = room.smallBlind;
+    room.playerChips[room.players[sbIndex]] -= room.smallBlind;
 
-    room.playerBets[room.players[sbIndex]] = sbAmount;
-    room.playerChips[room.players[sbIndex]] -= sbAmount;
+    room.playerBets[room.players[bbIndex]] = room.bigBlind;
+    room.playerChips[room.players[bbIndex]] -= room.bigBlind;
 
-    room.playerBets[room.players[bbIndex]] = bbAmount;
-    room.playerChips[room.players[bbIndex]] -= bbAmount;
-
-    room.currentBet = bbAmount;
+    room.currentBet = room.bigBlind;
     room.currentTurn = (bbIndex + 1) % totalPlayers;
 
     io.to(roomCode).emit("gameStarted", {
@@ -187,7 +233,7 @@ io.on("connection", (socket) => {
       currentTurn: room.currentTurn,
       currentBet: room.currentBet,
       pot: room.pot,
-      lastRaise: 20, // big blind
+      lastRaise: room.bigBlind,
     });
   });
 
@@ -200,7 +246,7 @@ io.on("connection", (socket) => {
     const player = socket.id;
 
     const raiseAmount = totalBet - room.currentBet;
-    const minRaise = room.lastRaise || 20;
+    const minRaise = room.lastRaise || room.bigBlind;
 
     if (
       totalBet > room.currentBet &&
@@ -213,7 +259,7 @@ io.on("connection", (socket) => {
       room.lastRaise = totalBet - room.playerBets[player];
       room.currentBet = totalBet;
 
-      room.currentTurn = (room.currentTurn + 1) % room.players.length;
+      room.currentTurn = getNextActivePlayer(room);
 
       io.to(roomCode).emit("updateBets", {
         playerBets: room.playerBets,
@@ -242,17 +288,18 @@ io.on("connection", (socket) => {
     if (room.playerChips[player] >= callAmount) {
       room.playerChips[player] -= callAmount;
       room.playerBets[player] = room.currentBet;
+      if (
+        shouldProgressPhase(room) &&
+        !(
+          room.phase === "pre-flop" &&
+          room.currentTurn === (room.dealer + 1) % room.players.length &&
+          room.currentBet === room.bigBlind
+        ) // dont progress if small blind flat calls
+      ) {
+        const activePlayers = room.players.filter(
+          (player) => !room.foldedPlayers.includes(player)
+        );
 
-      room.currentTurn = (room.currentTurn + 1) % room.players.length;
-
-      const activePlayers = room.players.filter(
-        (p) => !room.foldedPlayers.includes(p)
-      );
-      const shouldProgress = activePlayers.every(
-        (p) => room.playerBets[p] === (room.currentBet || 0)
-      );
-
-      if (shouldProgress) {
         for (const playerID of activePlayers) {
           room.pot += room.playerBets[playerID] || 0;
           room.playerBets[playerID] = 0;
@@ -260,7 +307,30 @@ io.on("connection", (socket) => {
         room.currentBet = 0;
 
         if (room.phase === "river") {
-          io.to(roomCode).emit("handEnded", { pot: room.pot });
+          const { winners } = evaluateHands(room);
+
+          const splitPot = Math.floor(room.pot / winners.length);
+          winners.forEach((winner) => {
+            room.playerChips[winner] += splitPot;
+          });
+
+          room.pot = 0;
+
+          io.to(roomCode).emit("gameEnded", {
+            winners,
+            playerChips: room.playerChips,
+            holeCards: room.holeCards,
+          });
+
+          io.to(roomCode).emit("updateBets", {
+            playerBets: room.playerBets,
+            playerChips: room.playerChips,
+            pot: room.pot,
+            currentTurn: room.currentTurn,
+            currentBet: room.currentBet,
+          });
+
+          room.currentTurn = room.dealer;
         } else {
           let cardsToReveal = 0;
           if (room.phase === "pre-flop") {
@@ -274,12 +344,16 @@ io.on("connection", (socket) => {
             cardsToReveal = 5;
           }
 
+          room.currentTurn = room.dealer;
+
           io.to(roomCode).emit("phaseUpdate", {
             communityCards: room.communityCards.slice(0, cardsToReveal),
             phase: room.phase,
+            currentTurn: room.currentTurn,
           });
         }
       }
+      room.currentTurn = getNextActivePlayer(room);
 
       io.to(roomCode).emit("updateBets", {
         playerBets: room.playerBets,
@@ -297,21 +371,21 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const player = socket.id;
-    if (!room.foldedPlayers.includes(player)) {
-      room.foldedPlayers.push(player);
-    }
-
-    io.to(roomCode).emit("playerFolded", {
-      player,
-      foldedPlayers: room.foldedPlayers,
-    });
-
     const activePlayers = room.players.filter(
       (id) => !room.foldedPlayers.includes(id)
     );
 
-    if (activePlayers.length === 1) {
+    if (activePlayers.length === 2) {
+      const player = socket.id;
+      if (!room.foldedPlayers.includes(player)) {
+        room.foldedPlayers.push(player);
+      }
+
+      io.to(roomCode).emit("playerFolded", {
+        player,
+        foldedPlayers: room.foldedPlayers,
+      });
+
       const winner = activePlayers[0];
 
       // calculate pot
@@ -325,6 +399,8 @@ io.on("connection", (socket) => {
 
       io.to(roomCode).emit("gameEnded", {
         winners: [winner],
+        playerChips: room.playerChips,
+        holeCards: room.holeCards,
       });
 
       io.to(roomCode).emit("updateBets", {
@@ -335,11 +411,82 @@ io.on("connection", (socket) => {
         currentBet: room.currentBet,
       });
     } else {
-      room.currentTurn = (room.currentTurn + 1) % room.players.length;
+      console.log("blah", room.currentTurn);
+      const tempTurn = room.currentTurn;
+      room.currentTurn = room.dealer;
+      const firstTurn = getNextActivePlayer(room);
+      room.currentTurn = tempTurn;
+      const nextTurn = getNextActivePlayer(room);
 
-      while (room.foldedPlayers.includes(room.players[room.currentTurn])) {
-        room.currentTurn = (room.currentTurn + 1) % room.players.length;
+      if (nextTurn === firstTurn && shouldProgressPhase(room)) {
+        const activePlayers = room.players.filter(
+          (player) => !room.foldedPlayers.includes(player)
+        );
+
+        for (const playerID of activePlayers) {
+          room.pot += room.playerBets[playerID] || 0;
+          room.playerBets[playerID] = 0;
+        }
+        room.currentBet = 0;
+
+        if (room.phase === "river") {
+          const { winners } = evaluateHands(room);
+
+          const splitPot = Math.floor(room.pot / winners.length);
+          winners.forEach((winner) => {
+            room.playerChips[winner] += splitPot;
+          });
+
+          room.pot = 0;
+
+          io.to(roomCode).emit("gameEnded", {
+            winners,
+            playerChips: room.playerChips,
+            holeCards: room.holeCards,
+          });
+
+          io.to(roomCode).emit("updateBets", {
+            playerBets: room.playerBets,
+            playerChips: room.playerChips,
+            pot: room.pot,
+            currentTurn: room.currentTurn,
+            currentBet: room.currentBet,
+          });
+
+          room.currentTurn = room.dealer;
+        } else {
+          let cardsToReveal = 0;
+          if (room.phase === "pre-flop") {
+            room.phase = "flop";
+            cardsToReveal = 3;
+          } else if (room.phase === "flop") {
+            room.phase = "turn";
+            cardsToReveal = 4;
+          } else if (room.phase === "turn") {
+            room.phase = "river";
+            cardsToReveal = 5;
+          }
+
+          room.currentTurn = room.dealer;
+
+          io.to(roomCode).emit("phaseUpdate", {
+            communityCards: room.communityCards.slice(0, cardsToReveal),
+            phase: room.phase,
+            currentTurn: room.currentTurn,
+          });
+        }
       }
+      const player = socket.id;
+      if (!room.foldedPlayers.includes(player)) {
+        room.foldedPlayers.push(player);
+      }
+
+      io.to(roomCode).emit("playerFolded", {
+        player,
+        foldedPlayers: room.foldedPlayers,
+      });
+
+      room.currentTurn = getNextActivePlayer(room);
 
       io.to(roomCode).emit("turnChanged", {
         currentTurn: room.currentTurn,
@@ -355,10 +502,22 @@ io.on("connection", (socket) => {
 
     const player = room.players[room.currentTurn];
 
+    const tempTurn = room.currentTurn;
+    room.currentTurn = room.dealer;
+    const firstTurn = getNextActivePlayer(room);
+    room.currentTurn = tempTurn;
+    const nextTurn = getNextActivePlayer(room);
+
     if (player === socket.id) {
-      if (room.currentTurn === room.dealer && shouldProgressPhase(room)) {
+      if (
+        (nextTurn === firstTurn && shouldProgressPhase(room)) ||
+        (room.phase === "pre-flop" &&
+          room.currentTurn === (room.dealer + 2) % room.players.length &&
+          room.currentBet === room.playerBets[room.players[room.currentTurn]])
+      ) {
         if (room.phase === "river") {
-          const { winners, handDetails } = evaluateHands(room);
+          console.log("hello");
+          const { winners } = evaluateHands(room);
 
           const splitPot = Math.floor(room.pot / winners.length);
           winners.forEach((winner) => {
@@ -369,8 +528,8 @@ io.on("connection", (socket) => {
 
           io.to(roomCode).emit("gameEnded", {
             winners,
-            handDetails,
             playerChips: room.playerChips,
+            holeCards: room.holeCards,
           });
 
           io.to(roomCode).emit("updateBets", {
@@ -380,11 +539,27 @@ io.on("connection", (socket) => {
             currentTurn: room.currentTurn,
             currentBet: room.currentBet,
           });
+
+          room.currentTurn = room.dealer;
         } else {
           let cardsToReveal = 0;
           if (room.phase === "pre-flop") {
+            Object.entries(room.playerBets).forEach(([key, value]) => {
+              room.pot += value;
+              room.playerBets[key] = 0;
+            });
+
             room.phase = "flop";
             cardsToReveal = 3;
+            room.currentBet = 0;
+
+            io.to(roomCode).emit("updateBets", {
+              playerBets: room.playerBets,
+              playerChips: room.playerChips,
+              pot: room.pot,
+              currentTurn: room.currentTurn,
+              currentBet: room.currentBet,
+            });
           } else if (room.phase === "flop") {
             room.phase = "turn";
             cardsToReveal = 4;
@@ -392,45 +567,19 @@ io.on("connection", (socket) => {
             room.phase = "river";
             cardsToReveal = 5;
           }
+          room.currentTurn = room.dealer;
 
           io.to(roomCode).emit("phaseUpdate", {
             communityCards: room.communityCards.slice(0, cardsToReveal),
             phase: room.phase,
+            currentTurn: room.currentTurn,
           });
         }
       }
-      room.currentTurn = (room.currentTurn + 1) % room.players.length;
+      room.currentTurn = getNextActivePlayer(room);
 
       io.to(roomCode).emit("turnChanged", { currentTurn: room.currentTurn });
     }
-  });
-
-  socket.on("determineWinner", (roomCode) => {
-    const room = rooms[roomCode];
-    if (!room) {
-      return;
-    }
-
-    const { winners, handDetails } = evaluateHands(room);
-
-    const splitPot = Math.floor(room.pot / winners.length);
-    winners.forEach((winner) => {
-      room.playerChips[winner] += splitPot;
-    });
-
-    io.to(roomCode).emit("gameEnded", {
-      winners,
-      handDetails,
-      playerChips: room.playerChips,
-    });
-
-    io.to(roomCode).emit("updateBets", {
-      playerBets: room.playerBets,
-      playerChips: room.playerChips,
-      pot: room.pot,
-      currentTurn: room.currentTurn,
-      currentBet: room.currentBet,
-    });
   });
 
   socket.on("disconnect", () => {
@@ -449,6 +598,10 @@ io.on("connection", (socket) => {
           dealer: rooms[roomCode].dealer,
           currentTurn: rooms[roomCode].currentTurn,
           playerChips: rooms[roomCode].playerChips,
+          playerNames: rooms[roomCode].playerNames,
+          host: rooms[roomCode].host,
+          smallBlind: rooms[roomCode].smallBlind,
+          bigBlind: rooms[roomCode].bigBlind,
         });
       }
     }
