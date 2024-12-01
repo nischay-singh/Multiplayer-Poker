@@ -33,11 +33,6 @@ app.get("/api/create-lobby", (req, res) => {
 
 app.use(express.static(path.join(dirname, "/client/dist")));
 
-app.use("/socket.io", (req, res, next) => {
-  console.log("hello");
-  next();
-});
-
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "client", "dist", "index.html"));
 });
