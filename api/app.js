@@ -299,7 +299,6 @@ io.on("connection", (socket) => {
           room.currentBet === room.bigBlind
         ) // dont progress if small blind flat calls
       ) {
-        console.log("Hello");
         const activePlayers = room.players.filter(
           (player) => !room.foldedPlayers.includes(player)
         );
@@ -617,7 +616,6 @@ io.on("connection", (socket) => {
     });
 
     if (shouldProgressPhase(room)) {
-      console.log("blah");
       const activePlayers = room.players.filter(
         (p) => !room.foldedPlayers.includes(p)
       );
