@@ -22,8 +22,6 @@ const io = socket(server, {
   },
 });
 
-app.use(express.static(path.join(dirname, "/client/dist")));
-
 app.get("/", (req, res) => {
   res.send("Backend is running");
 });
@@ -31,6 +29,13 @@ app.get("/", (req, res) => {
 app.get("/api/create-lobby", (req, res) => {
   const lobbyID = uuidv4();
   res.json({ lobbyID });
+});
+
+app.use(express.static(path.join(dirname, "/client/dist")));
+
+app.use("/socket.io", (req, res, next) => {
+  console.log("hello");
+  next();
 });
 
 app.get("*", (req, res) => {

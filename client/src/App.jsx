@@ -5,7 +5,10 @@ import ScrollToTop from "./components/ScrollToTop";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Game from "./components/Game";
 
-const socket = io("http://localhost:3000", { forceNew: true });
+const socket = io({
+  path: "/socket.io",
+  forceNew: true,
+});
 
 export default function App() {
   useEffect(() => {
