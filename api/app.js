@@ -5,7 +5,9 @@ const socket = require("socket.io");
 const { v4: uuidv4 } = require("uuid");
 const { createDeck, shuffleDeck } = require("./utils");
 const PokerEvaluator = require("poker-evaluator");
+const path = require("path");
 
+const dirname = path.resolve();
 const app = express();
 const PORT = 3000;
 
@@ -20,6 +22,8 @@ const io = socket(server, {
   },
 });
 
+app.use(express.static(path.join(dirname, "/client/dist")));
+
 app.get("/", (req, res) => {
   res.send("Backend is running");
 });
@@ -27,6 +31,10 @@ app.get("/", (req, res) => {
 app.get("/api/create-lobby", (req, res) => {
   const lobbyID = uuidv4();
   res.json({ lobbyID });
+});
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "client", "dist", "index.html"));
 });
 
 const rooms = {};
