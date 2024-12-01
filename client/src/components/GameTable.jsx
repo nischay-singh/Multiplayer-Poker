@@ -10,6 +10,7 @@ import {
   setSmallBlind,
   setBigBlind,
   setHoleCards,
+  setHost,
 } from "../redux/game/gameSlice";
 import {
   setPlayers,
@@ -48,9 +49,7 @@ export default function GameTable({ socket }) {
   const [minRaise, setMinRaise] = useState(bigBlind); // min raise is initially the big blind
   const [hasGameEnded, setHasGameEnded] = useState(false);
   const [gameWinner, setGameWinner] = useState(null);
-  const [gameWinnerName, setGameWinnerName] = useState(null);
-
-  console.log(gameWinner, gameWinnerName);
+  const [isRoundStarted, setIsRoundStarted] = useState(false);
 
   useEffect(() => {
     socket.on("updatePlayerList", (info) => {
@@ -61,6 +60,7 @@ export default function GameTable({ socket }) {
       dispatch(setTurn(info.currentTurn));
       dispatch(setBigBlind(info.bigBlind));
       dispatch(setSmallBlind(info.smallBlind));
+      dispatch(setHost(info.host));
 
       for (let i = 0; i < info.players.length; i++) {
         if (info.players[i] === socket.id) {
@@ -87,8 +87,9 @@ export default function GameTable({ socket }) {
       dispatch(setDealer(info.dealer));
       dispatch(resetFoldedPlayers());
       dispatch(setCurrentBet(info.currentBet));
-      setHasGameEnded(false); // Reset game end state
+      setHasGameEnded(false);
       setGameWinner(null);
+      setIsRoundStarted(true);
     });
 
     socket.on("phaseUpdate", (info) => {
@@ -192,7 +193,15 @@ export default function GameTable({ socket }) {
   };
 
   const handleNewRound = () => {
+    setIsRoundStarted(true);
+    setHasGameEnded(false);
     socket.emit("startNewRound", lobbyID);
+  };
+
+  const handleAllIn = () => {
+    if (socket.id === players[currentTurn]) {
+      socket.emit("allIn", lobbyID);
+    }
   };
 
   return (
@@ -368,6 +377,18 @@ export default function GameTable({ socket }) {
               )}
 
               <button
+                onClick={handleAllIn}
+                disabled={socket.id !== players[currentTurn]}
+                className={`${
+                  socket.id !== players[currentTurn]
+                    ? "bg-gray-400 cursor-not-allowed"
+                    : "bg-black hover:bg-grey-900"
+                } text-white font-bold py-2 px-4 rounded`}
+              >
+                All-In
+              </button>
+
+              <button
                 onClick={handleFold}
                 disabled={socket.id !== players[currentTurn] || hasGameEnded}
                 className={`${
@@ -382,14 +403,16 @@ export default function GameTable({ socket }) {
           )}
         </div>
 
-        {players.length > 1 && host == socket.id && (
-          <button
-            onClick={handleNewRound}
-            className="absolute bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded round-button md:text-md lg:text-lg"
-          >
-            Start New Round
-          </button>
-        )}
+        {players.length > 1 &&
+          host == socket.id &&
+          (!isRoundStarted || hasGameEnded) && (
+            <button
+              onClick={handleNewRound}
+              className="absolute bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded round-button md:text-md lg:text-lg"
+            >
+              Start New Round
+            </button>
+          )}
       </div>
     </div>
   );

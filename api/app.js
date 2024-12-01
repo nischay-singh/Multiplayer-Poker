@@ -74,15 +74,10 @@ function shouldProgressPhase(room) {
 
   let ret = activePlayers.every((player) => {
     const playerBet = room.playerBets[player] || 0;
-    return playerBet === (room.currentBet || 0);
+    return (
+      playerBet === (room.currentBet || 0) || room.playerChips[player] === 0 // handle all-in case
+    );
   });
-
-  if (
-    room.phase === "pre-flop" &&
-    room.currentTurn === (room.dealer + 2) % room.players.length
-  ) {
-    ret = false;
-  }
 
   return ret;
 }
@@ -296,6 +291,7 @@ io.on("connection", (socket) => {
           room.currentBet === room.bigBlind
         ) // dont progress if small blind flat calls
       ) {
+        console.log("Hello");
         const activePlayers = room.players.filter(
           (player) => !room.foldedPlayers.includes(player)
         );
@@ -411,7 +407,6 @@ io.on("connection", (socket) => {
         currentBet: room.currentBet,
       });
     } else {
-      console.log("blah", room.currentTurn);
       const tempTurn = room.currentTurn;
       room.currentTurn = room.dealer;
       const firstTurn = getNextActivePlayer(room);
@@ -516,7 +511,6 @@ io.on("connection", (socket) => {
           room.currentBet === room.playerBets[room.players[room.currentTurn]])
       ) {
         if (room.phase === "river") {
-          console.log("hello");
           const { winners } = evaluateHands(room);
 
           const splitPot = Math.floor(room.pot / winners.length);
@@ -582,6 +576,83 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("allIn", (roomCode) => {
+    const room = rooms[roomCode];
+    if (!room) {
+      return;
+    }
+
+    const player = socket.id;
+
+    const allInAmount = room.playerChips[player];
+    if (allInAmount <= 0) {
+      return;
+    }
+
+    room.playerBets[player] = (room.playerBets[player] || 0) + allInAmount;
+    room.playerChips[player] = 0;
+
+    if (room.playerBets[player] > room.currentBet) {
+      room.lastRaise = room.playerBets[player] - room.currentBet;
+      room.currentBet = room.playerBets[player];
+    }
+
+    room.currentTurn = getNextActivePlayer(room);
+
+    io.to(roomCode).emit("updateBets", {
+      playerBets: room.playerBets,
+      playerChips: room.playerChips,
+      currentTurn: room.currentTurn,
+      currentBet: room.currentBet,
+      pot: room.pot,
+      lastRaise: room.lastRaise,
+    });
+
+    if (shouldProgressPhase(room)) {
+      console.log("blah");
+      const activePlayers = room.players.filter(
+        (p) => !room.foldedPlayers.includes(p)
+      );
+
+      for (const playerID of activePlayers) {
+        room.pot += room.playerBets[playerID] || 0;
+        room.playerBets[playerID] = 0;
+      }
+      room.currentBet = 0;
+
+      const { winners } = evaluateHands(room);
+
+      const splitPot = Math.floor(room.pot / winners.length);
+      winners.forEach((winner) => {
+        room.playerChips[winner] += splitPot;
+      });
+
+      room.pot = 0;
+
+      io.to(roomCode).emit("phaseUpdate", {
+        communityCards: room.communityCards.slice(0, 5),
+        phase: room.phase,
+        currentTurn: room.currentTurn,
+      });
+
+      io.to(roomCode).emit("gameEnded", {
+        winners,
+        playerChips: room.playerChips,
+        holeCards: room.holeCards,
+      });
+
+      io.to(roomCode).emit("updateBets", {
+        playerBets: room.playerBets,
+        playerChips: room.playerChips,
+        pot: room.pot,
+        currentTurn: room.currentTurn,
+        currentBet: room.currentBet,
+      });
+
+      room.currentTurn = room.dealer;
+    }
+  });
+
   socket.on("disconnect", () => {
     for (const roomCode in rooms) {
       rooms[roomCode].players = rooms[roomCode].players.filter(
@@ -593,6 +664,10 @@ io.on("connection", (socket) => {
       if (rooms[roomCode].players.length === 0) {
         delete rooms[roomCode];
       } else {
+        if (rooms[roomCode].host === socket.id) {
+          rooms[roomCode].host = rooms[roomCode].players[0];
+        }
+
         io.to(roomCode).emit("updatePlayerList", {
           players: rooms[roomCode].players,
           dealer: rooms[roomCode].dealer,
