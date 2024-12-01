@@ -66,9 +66,11 @@ export default function Game({ socket }) {
     };
   }, [lobbyID, socket, dispatch]);
 
+
   const handleJoin = () => {
     if (playerName.trim() && startingChips > 0) {
       setHasJoined(true);
+
       socket.emit("joinRoom", lobbyID, playerName, startingChips);
     } else {
       alert("Please enter a valid name and starting chips!");
