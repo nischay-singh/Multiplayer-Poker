@@ -389,7 +389,11 @@ io.on("connection", (socket) => {
         foldedPlayers: room.foldedPlayers,
       });
 
-      const winner = activePlayers[0];
+      const leftPlayers = activePlayers.filter(
+        (id) => !room.foldedPlayers.includes(id)
+      );
+
+      const winner = leftPlayers[0];
 
       // calculate pot
       Object.entries(room.playerBets).forEach(([key, value]) => {
