@@ -98,6 +98,7 @@ export default function GameTable({ socket }) {
       dispatch(setCurrentPhase(info.phase));
       dispatch(setTurn(info.currentTurn));
       setMinRaise(bigBlind); // set to big blind
+      dispatch(setCurrentBet(0));
     });
 
     socket.on("updateBets", (info) => {
