@@ -50,6 +50,7 @@ export default function GameTable({ socket }) {
   const [hasGameEnded, setHasGameEnded] = useState(false);
   const [gameWinner, setGameWinner] = useState(null);
   const [isRoundStarted, setIsRoundStarted] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     socket.on("updatePlayerList", (info) => {
@@ -413,7 +414,29 @@ export default function GameTable({ socket }) {
               Start New Round
             </button>
           )}
+
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="view-join-code-button"
+        >
+          View Join Code
+        </button>
       </div>
+
+      {isModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h2>Join Code</h2>
+            <p className="join-code">{lobbyID}</p>
+            <button
+              onClick={() => setIsModalOpen(false)}
+              className="close-modal-button"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
