@@ -49,8 +49,8 @@ export default function GameTable({ socket }) {
   const [minRaise, setMinRaise] = useState(bigBlind); // min raise is initially the big blind
   const [hasGameEnded, setHasGameEnded] = useState(false);
   const [gameWinner, setGameWinner] = useState(null);
-  const [isRoundStarted, setIsRoundStarted] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isRoundStarted, setIsRoundStarted] = useState(false);
 
   useEffect(() => {
     socket.on("updatePlayerList", (info) => {
@@ -126,11 +126,19 @@ export default function GameTable({ socket }) {
 
     socket.on("gameEnded", (info) => {
       setGameWinner(info.winners);
-
-      setHasGameEnded(true);
-
       dispatch(setPlayerChips(info.playerChips));
       dispatch(setHoleCards(info.holeCards));
+
+      setTimeout(() => {
+        setHasGameEnded(true);
+        socket.emit("checkChips", lobbyID);
+        setGameWinner(null);
+      }, 3000);
+    });
+
+    socket.on("outOfChips", (info) => {
+      alert(info.message);
+      window.location.href = "/game/" + lobbyID;
     });
 
     return () => {
@@ -143,6 +151,7 @@ export default function GameTable({ socket }) {
       socket.off("setPot");
       socket.off("playerFolded");
       socket.off("gameEnded");
+      socket.off("outOfChips");
     };
   }, [dispatch]);
 
@@ -195,9 +204,9 @@ export default function GameTable({ socket }) {
   };
 
   const handleNewRound = () => {
-    setIsRoundStarted(true);
     setHasGameEnded(false);
     socket.emit("startNewRound", lobbyID);
+    setIsRoundStarted(true);
   };
 
   const handleAllIn = () => {
@@ -234,7 +243,7 @@ export default function GameTable({ socket }) {
             key={playerID}
             className={`text-center text-white absolute seat-${index + 1} ${
               foldedPlayers.includes(playerID) ||
-              (hasGameEnded && !gameWinner.includes(playerID))
+              (gameWinner && !gameWinner.includes(playerID))
                 ? "opacity-50"
                 : ""
             }`}
@@ -250,7 +259,7 @@ export default function GameTable({ socket }) {
                   <img
                     src={`/cards/${
                       playerID === socket.id ||
-                      (hasGameEnded && !foldedPlayers.includes(playerID))
+                      (gameWinner && !foldedPlayers.includes(playerID))
                         ? card
                         : "RED_BACK"
                     }.svg`}
@@ -274,7 +283,7 @@ export default function GameTable({ socket }) {
           </div>
         ))}
 
-        {hasGameEnded && gameWinner && (
+        {gameWinner && (
           <div className="absolute top-4 left-4 bg-gray-900 text-white p-4 rounded shadow-md">
             <h3 className="font-bold">Game Ended!</h3>
             <p>
@@ -318,7 +327,7 @@ export default function GameTable({ socket }) {
                 disabled={
                   socket.id !== players[currentTurn] ||
                   currentBet === 0 ||
-                  playerChips[socket.id] <
+                  playerChips[socket.id] <=
                     currentBet - (playerBets[socket.id] || 0) ||
                   hasGameEnded ||
                   (currentPhase === "pre-flop" &&
@@ -328,7 +337,7 @@ export default function GameTable({ socket }) {
                 className={`${
                   socket.id !== players[currentTurn] ||
                   currentBet === 0 ||
-                  playerChips[socket.id] <
+                  playerChips[socket.id] <=
                     currentBet - (playerBets[socket.id] || 0) ||
                   hasGameEnded ||
                   (currentPhase === "pre-flop" &&
